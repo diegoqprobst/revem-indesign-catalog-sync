@@ -106,13 +106,47 @@ function parseCsv(text) {
 }
 
 function normalizeProducts(rows) {
-  return rows.map((row) => ({
-    sku: value(row, ["SKU", "sku", "Codigo", "Código", "codigo"]),
-    name: value(row, ["Name", "name", "Nombre", "Producto"]),
-    description: value(row, ["Description", "description", "Descripcion", "Descripción", "desc"]),
-    stock: value(row, ["Stock", "stock", "Cantidad", "CANTIDAD"]),
-    image: value(row, ["@Image", "@Imagen", "Image", "Imagen", "img"])
-  })).filter((p) => p.sku || p.name);
+  return rows.map((row) => {
+    const product = {
+      sku: value(row, ["SKU", "sku", "Codigo", "Código", "codigo"]),
+      name: value(row, ["Name", "name", "Nombre", "Nombre_Producto", "Producto"]),
+      description: value(row, ["Description", "description", "Descripcion", "Descripción", "desc"]),
+      stock: value(row, ["Stock", "stock", "Cantidad", "CANTIDAD"]),
+      color: value(row, ["Color", "color"]),
+      interiorColor: value(row, ["Color_interior", "Color interior"]),
+      base: value(row, ["Base", "base"]),
+      material: value(row, ["Material", "material"]),
+      height: value(row, ["Altura", "altura", "Dimensiones"]),
+      power: value(row, ["Potencia", "potencia"]),
+      cct: value(row, ["CCT", "cct", "Temperatura de color"]),
+      voltage: value(row, ["Voltaje", "voltaje"]),
+      recommendedCode: value(row, ["Codigo recomendado", "Código recomendado"]),
+      recommendation: value(row, ["Recomendacion_descripcion", "Recomendación_descripción"]),
+      images: {
+        primary: value(row, ["@Image", "@Imagen", "Image", "Imagen", "img", "@Imagen_limpia"]),
+        clean: value(row, ["@Imagen_limpia"]),
+        diagram: value(row, ["@Diagrama"]),
+        background: value(row, ["@Fondo"]),
+        recommendation: value(row, ["@imagen_recomendaciones", "@Imagen_recomendaciones"]),
+        logo: value(row, ["@Logo"])
+      }
+    };
+    if (!product.description) product.description = technicalDescription(product);
+    return product;
+  }).filter((p) => p.sku || p.name);
+}
+
+function technicalDescription(product) {
+  const parts = [];
+  if (product.color) parts.push("Color: " + product.color);
+  if (product.interiorColor) parts.push("Color interior: " + product.interiorColor);
+  if (product.base) parts.push("Base: " + product.base);
+  if (product.material) parts.push("Material: " + product.material);
+  if (product.height) parts.push("Altura: " + product.height);
+  if (product.power) parts.push("Potencia: " + product.power);
+  if (product.cct) parts.push("CCT: " + product.cct);
+  if (product.voltage) parts.push("Voltaje: " + product.voltage);
+  return parts.join(" | ");
 }
 
 function value(object, aliases) {
@@ -271,23 +305,24 @@ function updateProduct(group, product, images, result) {
   setText(group, "lbl_name", product.name);
   setText(group, "lbl_stock", product.stock);
   setText(group, "lbl_desc", product.description);
+  setText(group, "lbl_color", product.color);
+  setText(group, "lbl_color_interior", product.interiorColor);
+  setText(group, "lbl_base", product.base);
+  setText(group, "lbl_material", product.material);
+  setText(group, "lbl_altura", product.height);
+  setText(group, "lbl_potencia", product.power);
+  setText(group, "lbl_cct", product.cct);
+  setText(group, "lbl_voltaje", product.voltage);
+  setText(group, "lbl_codigo_recomendado", product.recommendedCode);
+  setText(group, "lbl_recomendacion_desc", product.recommendation);
   tagProduct(group, product.sku, "active");
 
-  if ($("updateImages").checked && product.image) {
-    const frame = childByLabel(group, "lbl_img");
-    const image = images[String(product.image).toLowerCase()];
-    if (!image) {
-      result.missingImages.push(product.sku + " -> " + product.image);
-    } else if (frame) {
-      try {
-        frame.place(image);
-        frame.fit(FitOptions.CONTENT_TO_FRAME);
-        frame.fit(FitOptions.PROPORTIONALLY);
-        frame.fit(FitOptions.CENTER_CONTENT);
-      } catch (error) {
-        result.missingImages.push(product.sku + " -> no se pudo colocar " + product.image);
-      }
-    }
+  if ($("updateImages").checked) {
+    placeImage(group, ["lbl_img", "lbl_imagen_limpia"], product.images.primary || product.images.clean, images, product.sku, result);
+    placeImage(group, ["lbl_diagrama"], product.images.diagram, images, product.sku, result);
+    placeImage(group, ["lbl_fondo"], product.images.background, images, product.sku, result);
+    placeImage(group, ["lbl_imagen_recomendaciones"], product.images.recommendation, images, product.sku, result);
+    placeImage(group, ["lbl_logo"], product.images.logo, images, product.sku, result);
   }
 
   for (const label of ["lbl_name", "lbl_stock", "lbl_desc"]) {
@@ -295,6 +330,29 @@ function updateProduct(group, product, images, result) {
     try {
       if (frame && frame.overflows) result.overflow.push(product.sku + " -> " + label);
     } catch (_) {}
+  }
+}
+
+function placeImage(group, labels, filename, images, sku, result) {
+  if (!filename) return;
+  let frame = null;
+  for (const label of labels) {
+    frame = childByLabel(group, label);
+    if (frame) break;
+  }
+  if (!frame) return;
+  const image = images[String(filename).toLowerCase()];
+  if (!image) {
+    result.missingImages.push(sku + " -> " + filename);
+    return;
+  }
+  try {
+    frame.place(image);
+    frame.fit(FitOptions.CONTENT_TO_FRAME);
+    frame.fit(FitOptions.PROPORTIONALLY);
+    frame.fit(FitOptions.CENTER_CONTENT);
+  } catch (_) {
+    result.missingImages.push(sku + " -> no se pudo colocar " + filename);
   }
 }
 

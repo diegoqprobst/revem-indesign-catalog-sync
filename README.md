@@ -39,6 +39,24 @@ grupo, usa estas etiquetas:
 - `lbl_desc`
 - `lbl_img`
 
+Campos opcionales para catalogos tecnicos:
+
+- `lbl_color`
+- `lbl_color_interior`
+- `lbl_base`
+- `lbl_material`
+- `lbl_altura`
+- `lbl_potencia`
+- `lbl_cct`
+- `lbl_voltaje`
+- `lbl_diagrama`
+- `lbl_fondo`
+- `lbl_imagen_limpia`
+- `lbl_imagen_recomendaciones`
+- `lbl_codigo_recomendado`
+- `lbl_recomendacion_desc`
+- `lbl_logo`
+
 El plugin reconoce tambien las fichas creadas previamente por
 `GeneradorCatalogo_v2.jsx`: lee `lbl_sku` y les agrega automaticamente la identidad
 persistente `revemSKU`.
@@ -47,11 +65,18 @@ persistente `revemSKU`.
 
 Columnas reconocidas:
 
-- `SKU`
-- `Name` o `Nombre` (opcional)
+- `SKU`, `Codigo` o `Código`
+- `Name`, `Nombre`, `Nombre_Producto` o `Producto`
 - `Description` o `Descripcion`
 - `Stock` o `Cantidad`
-- `@Image`, `@Imagen`, `Image` o `Imagen`
+- `Color`, `Color_interior`, `Base`, `Material`, `Altura`, `Potencia`, `CCT` y `Voltaje`
+- `@Image`, `@Imagen` o `@Imagen_limpia`
+- `@Diagrama`, `@Fondo`, `@imagen_recomendaciones` y `@Logo`
+- `Codigo recomendado` y `Recomendacion_descripcion`
+
+La base maestra puede mantenerse en Excel. Para usarla en el plugin, exporta la
+hoja de datos como **CSV UTF-8**. Los encabezados se reconocen directamente, por
+lo que no es necesario renombrar las columnas.
 
 La imagen debe existir dentro de la carpeta de fotos seleccionada. Al colocarla,
 InDesign conserva el vinculo al archivo original.
