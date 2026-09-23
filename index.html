@@ -1,0 +1,45 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main>
+      <h1>REVEM Catalogo</h1>
+      <p class="intro">Sincroniza las fichas del documento abierto mediante SKU.</p>
+
+      <section>
+        <h2>Origen de datos</h2>
+        <button id="chooseCsv">Seleccionar CSV</button>
+        <div id="csvName" class="path">Ningun CSV seleccionado</div>
+
+        <button id="chooseAssets">Seleccionar carpeta de fotos</button>
+        <div id="assetsName" class="path">Ninguna carpeta seleccionada</div>
+      </section>
+
+      <section>
+        <h2>Acciones</h2>
+        <button id="update" class="primary">Actualizar catalogo</button>
+        <button id="add">Agregar productos nuevos</button>
+        <button id="audit">Revisar sin modificar</button>
+      </section>
+
+      <label class="check">
+        <input id="updateImages" type="checkbox" checked>
+        <span>Actualizar fotografias</span>
+      </label>
+
+      <div id="progress" class="progress" hidden>
+        <progress id="progressBar" max="100" value="0"></progress>
+        <span id="progressText">Procesando...</span>
+      </div>
+
+      <section class="report">
+        <h2>Resultado</h2>
+        <pre id="output">Selecciona el CSV y la carpeta Assets.</pre>
+      </section>
+    </main>
+    <script src="main.js"></script>
+  </body>
+</html>

@@ -1,0 +1,408 @@
+const { app, FitOptions, MeasurementUnits, RulerOrigin } = require("indesign");
+const { storage } = require("uxp");
+
+const fs = storage.localFileSystem;
+const PRODUCT_PREFIX = "product:";
+const SKU_KEY = "revemSKU";
+const STATUS_KEY = "revemStatus";
+const FIRST_PAGE_Y = 73;
+const GAP_X = 5;
+const GAP_Y = 10;
+
+let csvFile = null;
+let assetsFolder = null;
+
+const $ = (id) => document.getElementById(id);
+
+$("chooseCsv").addEventListener("click", chooseCsv);
+$("chooseAssets").addEventListener("click", chooseAssets);
+$("update").addEventListener("click", () => run("update"));
+$("add").addEventListener("click", () => run("add"));
+$("audit").addEventListener("click", () => run("audit"));
+
+async function chooseCsv() {
+  const picked = await fs.getFileForOpening({ types: ["csv", "txt"] });
+  if (!picked) return;
+  csvFile = picked;
+  $("csvName").textContent = picked.nativePath || picked.name;
+}
+
+async function chooseAssets() {
+  const picked = await fs.getFolder();
+  if (!picked) return;
+  assetsFolder = picked;
+  $("assetsName").textContent = picked.nativePath || picked.name;
+}
+
+async function run(mode) {
+  if (!csvFile) return report("Selecciona primero el archivo CSV.");
+  if (!app.documents.length) return report("Abre el documento de InDesign que deseas actualizar.");
+
+  setBusy(true, "Leyendo CSV...");
+  try {
+    const text = await csvFile.read();
+    const parsed = parseCsv(text);
+    const products = normalizeProducts(parsed);
+    validateProducts(products);
+
+    const doc = app.activeDocument;
+    prepareDocument(doc);
+    const catalog = indexCatalog(doc);
+    const images = assetsFolder ? await indexFolder(assetsFolder) : {};
+    const result = await synchronize(doc, products, catalog, images, mode);
+    report(formatResult(result, mode));
+  } catch (error) {
+    report("ERROR\n" + (error && error.stack ? error.stack : error));
+  } finally {
+    setBusy(false);
+  }
+}
+
+function parseCsv(text) {
+  text = String(text || "").replace(/^\uFEFF/, "");
+  const rows = [];
+  let row = [];
+  let field = "";
+  let quoted = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (quoted) {
+      if (ch === '"' && text[i + 1] === '"') {
+        field += '"';
+        i++;
+      } else if (ch === '"') {
+        quoted = false;
+      } else {
+        field += ch;
+      }
+    } else if (ch === '"') {
+      quoted = true;
+    } else if (ch === ",") {
+      row.push(field);
+      field = "";
+    } else if (ch === "\n") {
+      row.push(field.replace(/\r$/, ""));
+      rows.push(row);
+      row = [];
+      field = "";
+    } else {
+      field += ch;
+    }
+  }
+
+  if (field.length || row.length) {
+    row.push(field.replace(/\r$/, ""));
+    rows.push(row);
+  }
+  if (rows.length < 2) throw new Error("El CSV no contiene registros.");
+
+  const headers = rows[0].map((h) => String(h).trim());
+  return rows.slice(1).filter((r) => r.some((v) => String(v).trim())).map((r) => {
+    const item = {};
+    headers.forEach((header, i) => { item[header] = r[i] == null ? "" : r[i]; });
+    return item;
+  });
+}
+
+function normalizeProducts(rows) {
+  return rows.map((row) => ({
+    sku: value(row, ["SKU", "sku", "Codigo", "Código", "codigo"]),
+    name: value(row, ["Name", "name", "Nombre", "Producto"]),
+    description: value(row, ["Description", "description", "Descripcion", "Descripción", "desc"]),
+    stock: value(row, ["Stock", "stock", "Cantidad", "CANTIDAD"]),
+    image: value(row, ["@Image", "@Imagen", "Image", "Imagen", "img"])
+  })).filter((p) => p.sku || p.name);
+}
+
+function value(object, aliases) {
+  for (const key of aliases) {
+    if (Object.prototype.hasOwnProperty.call(object, key)) return String(object[key]).trim();
+  }
+  return "";
+}
+
+function validateProducts(products) {
+  if (!products.length) throw new Error("No se encontraron productos en el CSV.");
+  const seen = {};
+  const duplicate = [];
+  products.forEach((p, index) => {
+    if (!p.sku) throw new Error("La fila " + (index + 2) + " no tiene SKU.");
+    const key = skuKey(p.sku);
+    if (seen[key]) duplicate.push(p.sku);
+    seen[key] = true;
+  });
+  if (duplicate.length) throw new Error("SKU duplicados en el CSV: " + duplicate.join(", "));
+}
+
+function prepareDocument(doc) {
+  doc.viewPreferences.horizontalMeasurementUnits = MeasurementUnits.MILLIMETERS;
+  doc.viewPreferences.verticalMeasurementUnits = MeasurementUnits.MILLIMETERS;
+  doc.viewPreferences.rulerOrigin = RulerOrigin.PAGE_ORIGIN;
+  doc.zeroPoint = [0, 0];
+}
+
+function allItems(container) {
+  const collection = container.allPageItems;
+  const result = [];
+  for (let i = 0; i < collection.length; i++) result.push(collection[i]);
+  return result;
+}
+
+function indexCatalog(doc) {
+  const bySku = {};
+  let master = null;
+  const items = allItems(doc);
+
+  for (const item of items) {
+    if (item.label === "masterProduct") {
+      master = item;
+      continue;
+    }
+
+    let sku = safeExtract(item, SKU_KEY);
+    if (!sku && String(item.label || "").indexOf(PRODUCT_PREFIX) === 0) {
+      sku = String(item.label).slice(PRODUCT_PREFIX.length);
+    }
+    if (!sku && isProductGroup(item)) sku = childText(item, "lbl_sku");
+
+    if (sku) {
+      const key = skuKey(sku);
+      if (!bySku[key]) {
+        tagProduct(item, sku, "active");
+        bySku[key] = item;
+      }
+    }
+  }
+  return { bySku, master };
+}
+
+function isProductGroup(item) {
+  try {
+    return !!childByLabel(item, "lbl_sku");
+  } catch (_) {
+    return false;
+  }
+}
+
+function childByLabel(parent, label) {
+  const children = allItems(parent);
+  for (const child of children) if (child.label === label) return child;
+  return null;
+}
+
+function childText(parent, label) {
+  const child = childByLabel(parent, label);
+  if (!child) return "";
+  try { return String(child.contents || "").trim(); } catch (_) { return ""; }
+}
+
+function safeExtract(item, key) {
+  try { return item.extractLabel(key) || ""; } catch (_) { return ""; }
+}
+
+function tagProduct(item, sku, status) {
+  item.label = PRODUCT_PREFIX + sku;
+  item.insertLabel(SKU_KEY, sku);
+  item.insertLabel(STATUS_KEY, status);
+}
+
+async function indexFolder(folder) {
+  const result = {};
+  const entries = await folder.getEntries();
+  entries.forEach((entry) => {
+    if (!entry.isFolder) result[String(entry.name).toLowerCase()] = entry;
+  });
+  return result;
+}
+
+async function synchronize(doc, products, catalog, images, mode) {
+  const result = {
+    csv: products.length,
+    updated: [],
+    added: [],
+    missingInCsv: [],
+    missingImages: [],
+    overflow: [],
+    skipped: []
+  };
+
+  const csvKeys = {};
+  products.forEach((p) => { csvKeys[skuKey(p.sku)] = true; });
+
+  if (mode !== "add") {
+    for (const product of products) {
+      const item = catalog.bySku[skuKey(product.sku)];
+      if (!item) continue;
+      if (mode === "update") {
+        updateProduct(item, product, images, result);
+        result.updated.push(product.sku);
+      }
+    }
+  }
+
+  if (mode !== "audit") {
+    const newProducts = products.filter((p) => !catalog.bySku[skuKey(p.sku)]);
+    if (newProducts.length) {
+      if (!catalog.master) {
+        result.skipped.push("No se encontro el grupo masterProduct; no se agregaron productos.");
+      } else {
+        addProducts(doc, newProducts, catalog.master, images, result);
+      }
+    }
+  }
+
+  Object.keys(catalog.bySku).forEach((key) => {
+    const item = catalog.bySku[key];
+    const sku = safeExtract(item, SKU_KEY) || childText(item, "lbl_sku");
+    if (!csvKeys[key]) {
+      result.missingInCsv.push(sku);
+      if (mode === "update") item.insertLabel(STATUS_KEY, "missing-in-csv");
+    } else if (mode === "update") {
+      item.insertLabel(STATUS_KEY, "active");
+    }
+  });
+
+  return result;
+}
+
+function updateProduct(group, product, images, result) {
+  setText(group, "lbl_sku", product.sku);
+  setText(group, "lbl_name", product.name);
+  setText(group, "lbl_stock", product.stock);
+  setText(group, "lbl_desc", product.description);
+  tagProduct(group, product.sku, "active");
+
+  if ($("updateImages").checked && product.image) {
+    const frame = childByLabel(group, "lbl_img");
+    const image = images[String(product.image).toLowerCase()];
+    if (!image) {
+      result.missingImages.push(product.sku + " -> " + product.image);
+    } else if (frame) {
+      try {
+        frame.place(image);
+        frame.fit(FitOptions.CONTENT_TO_FRAME);
+        frame.fit(FitOptions.PROPORTIONALLY);
+        frame.fit(FitOptions.CENTER_CONTENT);
+      } catch (error) {
+        result.missingImages.push(product.sku + " -> no se pudo colocar " + product.image);
+      }
+    }
+  }
+
+  for (const label of ["lbl_name", "lbl_stock", "lbl_desc"]) {
+    const frame = childByLabel(group, label);
+    try {
+      if (frame && frame.overflows) result.overflow.push(product.sku + " -> " + label);
+    } catch (_) {}
+  }
+}
+
+function setText(group, label, value) {
+  const item = childByLabel(group, label);
+  if (!item) return;
+  try { item.contents = value == null ? "" : String(value); } catch (_) {}
+}
+
+function addProducts(doc, products, master, images, result) {
+  const bounds = master.geometricBounds;
+  const height = bounds[2] - bounds[0];
+  const width = bounds[3] - bounds[1];
+  const pageWidth = doc.documentPreferences.pageWidth;
+  const pageHeight = doc.documentPreferences.pageHeight;
+  const margins = doc.marginPreferences;
+  const limitX = pageWidth - margins.right;
+  const limitY = pageHeight - margins.bottom;
+  let page = doc.pages.item(doc.pages.length - 1);
+  let position = nextPosition(doc, page, width, height, margins, limitX, limitY);
+
+  master.visible = false;
+  products.forEach((product, index) => {
+    if (position.y + height > limitY) {
+      page = doc.pages.add();
+      position = { x: margins.left, y: margins.top };
+    }
+    const item = master.duplicate(page);
+    item.visible = true;
+    item.move([position.x, position.y]);
+    updateProduct(item, product, images, result);
+    result.added.push(product.sku);
+    position.x += width + GAP_X;
+    if (position.x + width > limitX + 0.1) {
+      position.x = margins.left;
+      position.y += height + GAP_Y;
+    }
+    setProgress(index + 1, products.length, "Agregando " + product.sku);
+  });
+}
+
+function nextPosition(doc, page, width, height, margins, limitX, limitY) {
+  const products = allItems(page).filter((item) => safeExtract(item, SKU_KEY));
+  if (!products.length) {
+    return { x: margins.left, y: page === doc.pages.item(0) ? FIRST_PAGE_Y : margins.top };
+  }
+
+  let last = products[0];
+  for (const item of products) {
+    const a = item.geometricBounds;
+    const b = last.geometricBounds;
+    if (a[0] > b[0] + 0.1 || (Math.abs(a[0] - b[0]) < 0.1 && a[1] > b[1])) last = item;
+  }
+  const b = last.geometricBounds;
+  let x = b[1] + width + GAP_X;
+  let y = b[0];
+  if (x + width > limitX + 0.1) {
+    x = margins.left;
+    y = b[0] + height + GAP_Y;
+  }
+  if (y + height > limitY) return { x: margins.left, y: limitY + 1 };
+  return { x, y };
+}
+
+function skuKey(sku) {
+  return String(sku || "").trim().toUpperCase();
+}
+
+function formatResult(result, mode) {
+  const lines = [
+    mode === "audit" ? "REVISION COMPLETADA" : "SINCRONIZACION COMPLETADA",
+    "Registros CSV: " + result.csv,
+    "Actualizados: " + result.updated.length,
+    "Agregados: " + result.added.length,
+    "No presentes en CSV: " + result.missingInCsv.length,
+    "Imagenes faltantes: " + result.missingImages.length,
+    "Textos desbordados: " + result.overflow.length
+  ];
+  appendDetails(lines, "Productos agregados", result.added);
+  appendDetails(lines, "No presentes en CSV", result.missingInCsv);
+  appendDetails(lines, "Imagenes faltantes", result.missingImages);
+  appendDetails(lines, "Textos desbordados", result.overflow);
+  appendDetails(lines, "Avisos", result.skipped);
+  return lines.join("\n");
+}
+
+function appendDetails(lines, title, values) {
+  if (!values.length) return;
+  lines.push("", title + ":");
+  values.forEach((value) => lines.push("- " + value));
+}
+
+function report(message) {
+  $("output").textContent = String(message);
+}
+
+function setBusy(busy, message) {
+  $("progress").hidden = !busy;
+  ["chooseCsv", "chooseAssets", "update", "add", "audit"].forEach((id) => {
+    $(id).disabled = busy;
+  });
+  if (busy) {
+    $("progressBar").value = 0;
+    $("progressText").textContent = message || "Procesando...";
+  }
+}
+
+function setProgress(current, total, message) {
+  $("progressBar").value = total ? Math.round((current / total) * 100) : 0;
+  $("progressText").textContent = message;
+}

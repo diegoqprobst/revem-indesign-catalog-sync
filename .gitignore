@@ -1,0 +1,14 @@
+.DS_Store
+*.indd
+*.idml
+*.indb
+*.csv
+*.tsv
+*.xlsx
+*.xls
+*.json
+Assets/
+assets/
+dist/
+*.ccx
+*.log

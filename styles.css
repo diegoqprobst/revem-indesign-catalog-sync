@@ -1,0 +1,64 @@
+:root {
+  --bg: #252525;
+  --surface: #303030;
+  --line: #494949;
+  --text: #f2f2f2;
+  --muted: #b8b8b8;
+  --accent: #f0a11a;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 14px;
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.4 system-ui, sans-serif;
+}
+
+main { display: flex; flex-direction: column; gap: 12px; }
+h1 { margin: 0; font-size: 18px; }
+h2 { margin: 0 0 8px; font-size: 13px; }
+.intro { margin: -6px 0 0; color: var(--muted); }
+
+section {
+  padding: 11px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface);
+}
+
+button {
+  width: 100%;
+  min-height: 30px;
+  margin: 0 0 7px;
+}
+
+button.primary {
+  background: var(--accent);
+  color: #151515;
+  font-weight: 700;
+}
+
+.path {
+  margin: -3px 2px 10px;
+  color: var(--muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.check { display: flex; align-items: center; gap: 7px; }
+.progress { display: flex; flex-direction: column; gap: 5px; }
+progress { width: 100%; }
+.report { min-height: 150px; }
+
+pre {
+  margin: 0;
+  min-height: 110px;
+  max-height: 260px;
+  overflow: auto;
+  white-space: pre-wrap;
+  color: var(--muted);
+  font: 11px/1.45 ui-monospace, monospace;
+}
