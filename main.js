@@ -1,5 +1,5 @@
 const { app, FitOptions, MeasurementUnits, RulerOrigin } = require("indesign");
-const { storage } = require("uxp");
+const { storage, entrypoints } = require("uxp");
 
 const fs = storage.localFileSystem;
 const PRODUCT_PREFIX = "product:";
@@ -21,6 +21,12 @@ $("update").addEventListener("click", () => run("update"));
 $("add").addEventListener("click", () => run("add"));
 $("audit").addEventListener("click", () => run("audit"));
 
+entrypoints.setup({
+  commands: {
+    validateTemplateCommand: () => alert(templateValidationMessage())
+  }
+});
+
 async function chooseCsv() {
   const picked = await fs.getFileForOpening({ types: ["csv", "txt"] });
   if (!picked) return;
@@ -39,41 +45,46 @@ function validateTemplate() {
   if (!app.documents.length) return report("Abre el documento de InDesign que deseas validar.");
   setBusy(true, "Validando etiquetas...");
   try {
-    const doc = app.activeDocument;
-    const items = documentItems(doc);
-    const counts = {};
-    for (const item of items) {
-      const label = String(item.label || "").trim();
-      if (label) counts[label] = (counts[label] || 0) + 1;
-    }
-
-    const requiredMasters = [
-      "master_E27",
-      "master_E27_multiproducto",
-      "master_LED",
-      "master_LED_multiproducto"
-    ];
-    const missingMasters = requiredMasters.filter((label) => !counts[label]);
-    const duplicateMasters = requiredMasters.filter((label) => (counts[label] || 0) > 1);
-    const labelLines = Object.keys(counts)
-      .filter((label) => label.indexOf("lbl_") === 0 || label.indexOf("master_") === 0)
-      .sort()
-      .map((label) => label + ": " + counts[label]);
-
-    const lines = [
-      missingMasters.length ? "PLANTILLA INCOMPLETA" : "PLANTILLA LISTA",
-      "Objetos revisados: " + items.length,
-      "Etiquetas REVEM: " + labelLines.length
-    ];
-    appendDetails(lines, "Grupos master faltantes", missingMasters);
-    appendDetails(lines, "Grupos master duplicados", duplicateMasters);
-    appendDetails(lines, "Etiquetas encontradas", labelLines);
-    report(lines.join("\n"));
+    report(templateValidationMessage());
   } catch (error) {
     report("ERROR AL VALIDAR\n" + (error && error.stack ? error.stack : error));
   } finally {
     setBusy(false);
   }
+}
+
+function templateValidationMessage() {
+  if (!app.documents.length) return "Abre el documento de InDesign que deseas validar.";
+  const doc = app.activeDocument;
+  const items = documentItems(doc);
+  const counts = {};
+  for (const item of items) {
+    const label = String(item.label || "").trim();
+    if (label) counts[label] = (counts[label] || 0) + 1;
+  }
+
+  const requiredMasters = [
+    "master_E27",
+    "master_E27_multiproducto",
+    "master_LED",
+    "master_LED_multiproducto"
+  ];
+  const missingMasters = requiredMasters.filter((label) => !counts[label]);
+  const duplicateMasters = requiredMasters.filter((label) => (counts[label] || 0) > 1);
+  const labelLines = Object.keys(counts)
+    .filter((label) => label.indexOf("lbl_") === 0 || label.indexOf("master_") === 0)
+    .sort()
+    .map((label) => label + ": " + counts[label]);
+
+  const lines = [
+    missingMasters.length ? "PLANTILLA INCOMPLETA" : "PLANTILLA LISTA",
+    "Objetos revisados: " + items.length,
+    "Etiquetas REVEM: " + labelLines.length
+  ];
+  appendDetails(lines, "Grupos master faltantes", missingMasters);
+  appendDetails(lines, "Grupos master duplicados", duplicateMasters);
+  appendDetails(lines, "Etiquetas encontradas", labelLines);
+  return lines.join("\n");
 }
 
 function documentItems(doc) {
