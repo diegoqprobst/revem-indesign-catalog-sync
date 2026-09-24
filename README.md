@@ -91,6 +91,10 @@ InDesign conserva el vinculo al archivo original.
 6. Ejecuta **Actualizar catalogo**.
 7. Guarda el documento cuando hayas validado el resultado.
 
+Antes de seleccionar datos, puedes ejecutar **Validar plantilla** para comprobar
+los cuatro grupos `master_...` y listar todas las etiquetas `lbl_...` detectadas
+en paginas y paginas padre.
+
 El plugin no elimina automaticamente fichas que ya no aparecen en el CSV. Las
 reporta y las marca internamente con el estado `missing-in-csv` para proteger los
 ajustes editoriales.
