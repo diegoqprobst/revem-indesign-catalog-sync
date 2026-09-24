@@ -90,18 +90,22 @@ function templateValidationMessage() {
 function documentItems(doc) {
   const result = [];
   const seen = {};
-  const containers = [];
-  try { containers.push(doc); } catch (_) {}
+  const pages = [];
   try {
-    for (let i = 0; i < doc.pages.length; i++) containers.push(doc.pages.item(i));
+    for (let i = 0; i < doc.pages.length; i++) pages.push(doc.pages.item(i));
   } catch (_) {}
   try {
-    for (let i = 0; i < doc.masterSpreads.length; i++) containers.push(doc.masterSpreads.item(i));
+    for (let i = 0; i < doc.masterSpreads.length; i++) {
+      const spread = doc.masterSpreads.item(i);
+      for (let pageIndex = 0; pageIndex < spread.pages.length; pageIndex++) {
+        pages.push(spread.pages.item(pageIndex));
+      }
+    }
   } catch (_) {}
 
-  for (const container of containers) {
+  for (const page of pages) {
     let items;
-    try { items = allItems(container); } catch (_) { continue; }
+    try { items = allItems(page); } catch (_) { continue; }
     for (const item of items) {
       let key;
       try { key = String(item.id); } catch (_) { key = "item-" + result.length; }
@@ -258,7 +262,8 @@ function prepareDocument(doc) {
 function allItems(container) {
   const collection = container.allPageItems;
   const result = [];
-  for (let i = 0; i < collection.length; i++) result.push(collection[i]);
+  const length = Number(collection.length) || 0;
+  for (let i = 0; i < length; i++) result.push(collection.item(i));
   return result;
 }
 
